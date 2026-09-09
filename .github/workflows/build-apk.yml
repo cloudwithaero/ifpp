@@ -22,50 +22,40 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install native printer plugin and patch print action
+      - name: Install native printer plugin
+        run: npm install --no-save @capgo/capacitor-printer@8.1.2
+
+      - name: Patch print action
+        shell: bash
         run: |
-          npm install @capgo/capacitor-printer@8.1.2 --save
           python - <<'PY'
           from pathlib import Path
           p = Path("app/page.tsx")
           s = p.read_text(encoding="utf-8")
-
           react_import = 'import { FormEvent, useEffect, useMemo, useState } from "react";'
           printer_import = 'import { Printer } from "@capgo/capacitor-printer";'
           if printer_import not in s:
               if react_import not in s:
                   raise SystemExit("React import marker not found")
               s = s.replace(react_import, react_import + "\n" + printer_import, 1)
-
           marker = "  function openPrintPreview() {"
-          handler = '''  async function handlePrintPlan() {
-    try {
-      await Printer.printWebView({ name: `IFBB Coach - ${playerName || "Plan"}` });
-    } catch (error) {
-      console.error("Native print failed, falling back to browser print", error);
-      if (typeof window !== "undefined") window.print();
-    }
-  }
-
-'''
           if "async function handlePrintPlan()" not in s:
               if marker not in s:
                   raise SystemExit("openPrintPreview marker not found")
+              handler = (
+                  '  async function handlePrintPlan() {\n'
+                  '    try {\n'
+                  '      await Printer.printWebView({ name: `IFBB Coach - ${playerName || "Plan"}` });\n'
+                  '    } catch (error) {\n'
+                  '      console.error("Native print failed, falling back to browser print", error);\n'
+                  '      if (typeof window !== "undefined") window.print();\n'
+                  '    }\n'
+                  '  }\n\n'
+              )
               s = s.replace(marker, handler + marker, 1)
-
           s = s.replace('onClick={()=>window.print()}', 'onClick={handlePrintPlan}')
           p.write_text(s, encoding="utf-8")
           PY
-
-      - name: Persist native print fix
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json package-lock.json app/page.tsx
-          if ! git diff --cached --quiet; then
-            git commit -m "Fix native Android printing"
-            git push
-          fi
 
       - name: Build Next.js static export
         run: npm run build
